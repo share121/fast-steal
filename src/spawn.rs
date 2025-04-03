@@ -8,6 +8,7 @@ use crate::{
 use std::{
     iter::Sum,
     ops::{Add, Div, Mul, Sub},
+    sync::mpsc,
     thread::{self, JoinHandle},
 };
 
@@ -22,14 +23,14 @@ where
         + Sum<Idx>
         + Ord
         + 'static,
-    F: FnOnce(crossbeam_channel::Receiver<Tasks<Idx>>, &dyn Fn(Idx)) + Send + Clone + 'static,
+    F: FnOnce(mpsc::Receiver<Tasks<Idx>>, &dyn Fn(Idx)) + Send + Clone + 'static,
 {
     thread::spawn(move || {
         thread::scope(|s| {
             let mut workers = Vec::with_capacity(task_group.len());
-            let (tx_progress, rx_progress) = crossbeam_channel::unbounded();
+            let (tx_progress, rx_progress) = mpsc::channel();
             for (id, tasks) in task_group.into_iter().enumerate() {
-                let (tx_task, rx_task) = crossbeam_channel::unbounded();
+                let (tx_task, rx_task) = mpsc::channel();
                 let tx_progress = tx_progress.clone();
                 let action = action.clone();
                 s.spawn(move || {

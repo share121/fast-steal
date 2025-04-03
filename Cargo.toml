@@ -12,4 +12,3 @@ documentation = "https://docs.rs/fast-steal"
 exclude = ["/.github"]
 
 [dependencies]
-crossbeam-channel = "0.5.14"

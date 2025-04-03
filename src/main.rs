@@ -1,5 +1,8 @@
 use fast_steal::{spawn::spawn, split_task::SplitTask, task::Task};
-use std::collections::{HashMap, hash_map::Entry};
+use std::{
+    collections::{HashMap, hash_map::Entry},
+    sync::mpsc,
+};
 
 fn fib(n: u128) -> u128 {
     match n {
@@ -18,28 +21,44 @@ fn main() {
     // 切分任务
     let task_group = tasks.split_task(8);
     // 接受任务结果
-    let (tx, rx) = crossbeam_channel::unbounded();
+    let (tx, rx) = mpsc::channel();
     let handle = spawn(task_group, move |rx_task, progress| {
-        // 监听任务
-        'task: for tasks in &rx_task {
-            // 退出条件
-            if tasks.is_empty() {
-                break;
-            }
-            // 业务逻辑
-            for task in tasks {
-                for i in task.start..task.end {
-                    // 任务窃取过程，必须放在任务前
-                    if !rx_task.is_empty() {
-                        continue 'task;
+        let mut tasks_gobal = Some(rx_task.recv().unwrap());
+        'task: loop {
+            match tasks_gobal.take() {
+                Some(ref tasks) => {
+                    // 退出条件
+                    if tasks.is_empty() {
+                        return;
                     }
-                    // 返回任务执行进度，必须放在任务前
-                    progress(1);
-                    println!("开始计算 {}", i);
-                    // 任务执行
-                    let res = fib(i);
-                    // 任务结果发送
-                    tx.send((i, res)).unwrap();
+                    // 业务逻辑
+                    for task in tasks {
+                        for i in task.start..task.end {
+                            // 任务窃取过程，必须放在任务前
+                            match rx_task.try_recv() {
+                                Ok(task) => {
+                                    tasks_gobal = Some(task);
+                                    continue 'task;
+                                }
+                                Err(e) => match e {
+                                    mpsc::TryRecvError::Empty => {}
+                                    mpsc::TryRecvError::Disconnected => {
+                                        panic!("{:?}", e);
+                                    }
+                                },
+                            }
+                            // 返回任务执行进度，必须放在任务前
+                            progress(1);
+                            // println!("开始计算 {}", i);
+                            // 任务执行
+                            let res = fib(i);
+                            // 任务结果发送
+                            tx.send((i, res)).unwrap();
+                        }
+                    }
+                }
+                None => {
+                    tasks_gobal = Some(rx_task.recv().unwrap());
                 }
             }
         }
